@@ -1,0 +1,74 @@
+name: Build & Deploy to Play Store
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: latest
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Cache pnpm
+      uses: actions/cache@v4
+      with:
+        path: ~/.pnpm-store
+        key: pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+
+    - name: Install dependencies
+      run: pnpm install --no-frozen-lockfile
+
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: gradle-${{ hashFiles('**/*.gradle*') }}
+
+    # ⭐ Keystore secrets se banao
+    - name: Create Keystore
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode \
+        > android/app/my-app-key.keystore
+
+    # ⭐ Release AAB banao
+    - name: Build Release AAB
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew bundleRelease
+      env:
+        MYAPP_UPLOAD_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        MYAPP_UPLOAD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    # ⭐ Play Store pe upload karo
+    - name: Upload to Play Store
+      uses: r0adkll/upload-google-play@v1
+      with:
+        serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        packageName: com.yourapp.name
+        releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+        track: internal    # internal testing se shuru karo
