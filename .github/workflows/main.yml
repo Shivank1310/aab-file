@@ -1,46 +1,51 @@
-name: Build Debug AAB
+name: Build AAB
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-aab:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+    # ⭐ pnpm pehle
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: latest
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
 
-      # ⭐ pnpm install karo pehle
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: latest
+    - name: Install dependencies
+      run: pnpm install --no-frozen-lockfile
 
-      # pnpm se dependencies install karo
-      - name: Install Dependencies
-        run: pnpm install --no-frozen-lockfile
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
-      - name: Build Debug AAB
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew bundleDebug
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
 
-      - name: Upload AAB
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: android/app/build/outputs/bundle/debug/app-debug.aab
+    - name: Build AAB
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew bundleDebug   # ← Testing ke liye Debug
+
+    - name: Upload AAB
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug.aab
+        path: android/app/build/outputs/bundle/debug/app-debug.aab
