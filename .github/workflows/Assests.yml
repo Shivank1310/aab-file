@@ -1,0 +1,122 @@
+name: Build AAB
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-aab:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        version: latest
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Cache pnpm
+      uses: actions/cache@v4
+      with:
+        path: ~/.pnpm-store
+        key: pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+
+    - name: Install dependencies
+      run: pnpm install --no-frozen-lockfile
+
+    - name: Setup JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: gradle-${{ hashFiles('**/*.gradle*') }}
+
+    # ⭐ Step 1: Auto Version Bump
+    - name: Bump Version Code and Name
+      run: |
+        # versionCode +1
+        OLD_CODE=$(grep "versionCode " android/app/build.gradle | grep -o '[0-9]*')
+        NEW_CODE=$((OLD_CODE + 1))
+
+        # versionName split karo
+        OLD_NAME=$(grep "versionName " android/app/build.gradle | grep -o '".*"' | tr -d '"')
+        MAJOR=$(echo $OLD_NAME | cut -d. -f1)
+        MINOR=$(echo $OLD_NAME | cut -d. -f2)
+        PATCH=$(echo $OLD_NAME | cut -d. -f3)
+
+        # Patch +1
+        NEW_PATCH=$((PATCH + 1))
+        NEW_NAME="$MAJOR.$MINOR.$NEW_PATCH"
+
+        # build.gradle update karo
+        sed -i "s/versionCode $OLD_CODE/versionCode $NEW_CODE/" android/app/build.gradle
+        sed -i "s/versionName \"$OLD_NAME\"/versionName \"$NEW_NAME\"/" android/app/build.gradle
+
+        echo "versionCode: $OLD_CODE → $NEW_CODE ✅"
+        echo "versionName: $OLD_NAME → $NEW_NAME ✅"
+
+        # Git mein save karo
+        git config user.name "github-actions"
+        git config user.email "actions@github.com"
+        git add android/app/build.gradle
+        git commit -m "chore: bump version $OLD_NAME → $NEW_NAME (code: $NEW_CODE)"
+        git push
+
+    #  Step 2: Clean
+    - name: Clean Build
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew clean
+
+    # Step 3: Fix Assets 
+    - name: Bundle JS Assets
+      run: |
+        npx react-native bundle \
+          --platform android \
+          --dev false \
+          --entry-file ./index.js \
+          --bundle-output ./android/app/src/main/assets/index.android.bundle \
+          --assets-dest ./android/app/src/main/res/ \
+          --sourcemap-output ./android/app/src/main/assets/index.android.map
+
+    # ⭐ Step 4: Generate AAB
+    - name: Build Release AAB
+      run: |
+        cd android
+        chmod +x gradlew
+        ./gradlew bundleRelease
+      env:
+        MYAPP_UPLOAD_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        MYAPP_UPLOAD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    #  Step 5: AAB Upload
+    - name: Upload AAB
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-release-v${{ github.run_number }}
+        path: android/app/build/outputs/bundle/release/app-release.aab
+        retention-days: 1
